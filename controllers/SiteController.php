@@ -3,11 +3,14 @@
 namespace app\controllers;
 
 use Yii;
+use yii\data\ArrayDataProvider;
 use yii\filters\AccessControl;
+use yii\helpers\Json;
 use yii\web\Controller;
 use yii\filters\VerbFilter;
 use app\models\LoginForm;
-use app\models\ContactForm;
+use yii\httpclient\Client;
+use yii\web\ServerErrorHttpException;
 
 class SiteController extends Controller
 {
@@ -95,31 +98,79 @@ class SiteController extends Controller
         return $this->goHome();
     }
 
-    /**
-     * Displays contact page.
-     *
-     * @return string
-     */
-    public function actionContact()
-    {
-        $model = new ContactForm();
-        if ($model->load(Yii::$app->request->post()) && $model->contact(Yii::$app->params['adminEmail'])) {
-            Yii::$app->session->setFlash('contactFormSubmitted');
 
-            return $this->refresh();
+    public function actionJira()
+    {
+        if (empty(Yii::$app->params['jira']['host'])) {
+            throw new ServerErrorHttpException('Jira: host is empty in config');
         }
-        return $this->render('contact', [
-            'model' => $model,
+
+        if (empty(Yii::$app->params['jira']['apiSearchPath'])) {
+            throw new ServerErrorHttpException('Jira: api search path is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['login'])) {
+            throw new ServerErrorHttpException('Jira: user login is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['password'])) {
+            throw new ServerErrorHttpException('Jira: user password is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['jql']['userIssuesInMonth'])) {
+            throw new ServerErrorHttpException('Jira: JQL userIssuesInMonth is empty in config');
+        }
+
+        $userAuthString = base64_encode(Yii::$app->params['jira']['login'] . ':' . Yii::$app->params['jira']['password']);
+        $requestParams = [
+            'jql' => Yii::$app->params['jira']['jql']['userIssuesInMonth']
+        ];
+
+        $client = new Client;
+        $response = $client->createRequest()
+            ->setMethod('post')
+            ->setUrl(Yii::$app->params['jira']['host'] . Yii::$app->params['jira']['apiSearchPath'])
+            ->setHeaders([
+                'Authorization' => 'Basic ' . $userAuthString,
+                'content-type' => 'application/json'
+            ])
+            ->setContent(Json::encode($requestParams))
+            ->send();
+        if (!$response->isOk) {
+            throw new ServerErrorHttpException('Error code: '.$response->statusCode . ' with message ' . $response->getContent());
+        }
+
+        $result = Json::decode($response->getContent());
+
+        $requiredSP = Yii::$app->params['kanban']['estimate'] * $this->workDaysInMonth();
+
+        $totalSP = 0;
+        foreach ($result['issues'] as $issue) {
+            $totalSP += $issue['fields']['customfield_10002'];
+        }
+
+        $dataProvider = new ArrayDataProvider([
+            'allModels' => $result['issues']
+        ]);
+
+        return $this->render('jira', [
+            'dataProvider' => $dataProvider,
+            'totalSP' => $totalSP,
+            'requiredSP' => $requiredSP
         ]);
     }
 
-    /**
-     * Displays about page.
-     *
-     * @return string
-     */
-    public function actionAbout()
-    {
-        return $this->render('about');
+    private function workDaysInMonth() {
+        $count = 0;
+        $month = (new \DateTime())->format('m');
+        $year = (new \DateTime())->format('Y');
+        $counter = mktime(0, 0, 0, $month, 1, $year);
+        while (date("n", $counter) == $month) {
+            if (in_array(date("w", $counter), [0, 6]) == false) {
+                $count++;
+            }
+            $counter = strtotime("+1 day", $counter);
+        }
+        return $count;
     }
 }
