@@ -14,6 +14,9 @@ use yii\web\ServerErrorHttpException;
 
 class SiteController extends Controller
 {
+
+    const TASKS_IN_DEV = 'inDev';
+    const TASKS_REVIEW = 'review';
     /**
      * @inheritdoc
      */
@@ -64,6 +67,37 @@ class SiteController extends Controller
     public function actionIndex()
     {
         return $this->render('index');
+    }
+
+    /**
+     * Проверяем содержимое конфигов
+     * @param \yii\base\Action $action
+     * @return bool
+     * @throws ServerErrorHttpException
+     */
+    public function beforeAction($action)
+    {
+        if (empty(Yii::$app->params['jira']['host'])) {
+            throw new ServerErrorHttpException('Jira: host is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['apiSearchPath'])) {
+            throw new ServerErrorHttpException('Jira: api search path is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['login'])) {
+            throw new ServerErrorHttpException('Jira: user login is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['password'])) {
+            throw new ServerErrorHttpException('Jira: user password is empty in config');
+        }
+
+        if (empty(Yii::$app->params['jira']['jql']['userIssuesInMonth'])) {
+            throw new ServerErrorHttpException('Jira: JQL userIssuesInMonth is empty in config');
+        }
+
+        return parent::beforeAction($action);
     }
 
     /**
@@ -142,12 +176,25 @@ class SiteController extends Controller
 
         $result = Json::decode($response->getContent());
 
+        if (isset(Yii::$app->params['jira']['ignoreTasks'])) {
+            foreach (Yii::$app->params['jira']['ignoreTasks'] as $task) {
+                foreach ($result['issues'] as $id => $issue) {
+                    if ($issue['key'] === $task) {
+                        unset($result['issues'][$id]);
+                    }
+                }
+            }
+        }
+
         $requiredSP = Yii::$app->params['kanban']['estimate'] * $this->workDaysInMonth();
 
-        $totalSP = 0;
+        $completedTotalSP = 0;
         foreach ($result['issues'] as $issue) {
-            $totalSP += $issue['fields']['customfield_10002'];
+            $completedTotalSP += $issue['fields']['customfield_10002'];
         }
+
+        $inDevTotalSP = $this->getTotalSPByStatus(static::TASKS_IN_DEV);
+        $reviewTotalSP = $this->getTotalSPByStatus(static::TASKS_REVIEW);
 
         $dataProvider = new ArrayDataProvider([
             'allModels' => $result['issues']
@@ -155,11 +202,57 @@ class SiteController extends Controller
 
         return $this->render('jira', [
             'dataProvider' => $dataProvider,
-            'totalSP' => $totalSP,
+            'completedTotalSP' => $completedTotalSP,
+            'reviewTotalSP' => $reviewTotalSP,
+            'inDevTotalSP' => $inDevTotalSP,
             'requiredSP' => $requiredSP
         ]);
     }
 
+    private function getTotalSPByStatus($status)
+    {
+        $jql = '';
+        switch ($status) {
+            case static::TASKS_IN_DEV :
+                $jql = Yii::$app->params['jira']['jql']['userIssuesInMonthInDev'];
+                break;
+            case static::TASKS_REVIEW  :
+                $jql = Yii::$app->params['jira']['jql']['userIssuesInMonthReview'];
+                break;
+            default:
+                return false;
+        }
+
+        $userAuthString = base64_encode(Yii::$app->params['jira']['login'] . ':' . Yii::$app->params['jira']['password']);
+
+        $requestParams = [
+            'jql' => $jql
+        ];
+
+        $client = new Client;
+        $response = $client->createRequest()
+            ->setMethod('post')
+            ->setUrl(Yii::$app->params['jira']['host'] . Yii::$app->params['jira']['apiSearchPath'])
+            ->setHeaders([
+                'Authorization' => 'Basic ' . $userAuthString,
+                'content-type' => 'application/json'
+            ])
+            ->setContent(Json::encode($requestParams))
+            ->send();
+        if (!$response->isOk) {
+            throw new ServerErrorHttpException('Error code: '.$response->statusCode . ' with message ' . $response->getContent());
+        }
+
+        $result = Json::decode($response->getContent());
+
+        $totalSP = 0;
+        foreach ($result['issues'] as $issue) {
+            $totalSP += $issue['fields']['customfield_10002'];
+        }
+
+        return $totalSP;
+
+    }
     private function workDaysInMonth() {
         $count = 0;
         $month = (new \DateTime())->format('m');
