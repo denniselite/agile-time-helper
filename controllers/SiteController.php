@@ -157,7 +157,8 @@ class SiteController extends Controller
 
         $userAuthString = base64_encode(Yii::$app->params['jira']['login'] . ':' . Yii::$app->params['jira']['password']);
         $requestParams = [
-            'jql' => Yii::$app->params['jira']['jql']['userIssuesInMonth']
+            'jql' => Yii::$app->params['jira']['jql']['userIssuesInMonth'],
+            'maxResults' => 200,
         ];
 
         $client = new Client;
@@ -226,7 +227,8 @@ class SiteController extends Controller
         $userAuthString = base64_encode(Yii::$app->params['jira']['login'] . ':' . Yii::$app->params['jira']['password']);
 
         $requestParams = [
-            'jql' => $jql
+            'jql' => $jql,
+            'maxResults' => 200,
         ];
 
         $client = new Client;
