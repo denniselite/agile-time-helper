@@ -186,7 +186,7 @@ class SiteController extends Controller
             }
         }
 
-        $requiredSP = Yii::$app->params['kanban']['estimate'] * $this->workDaysInMonth();
+        $requiredSP = Yii::$app->params['kanban']['estimate'] * ($this->workDaysInMonth() - Yii::$app->params['holidays_count_in_month']);
 
         $completedTotalSP = 0;
         foreach ($result['issues'] as $issue) {

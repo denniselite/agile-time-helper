@@ -9,5 +9,6 @@ if (file_exists($local)) {
 return \yii\helpers\ArrayHelper::merge([
     'kanban' => [
         'estimate' => 0.6
-    ]
+    ],
+    'holidays_count_in_month' => 0
 ], $params);
