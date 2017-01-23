@@ -187,7 +187,10 @@ class SiteController extends Controller
             }
         }
 
-        $requiredSP = Yii::$app->params['kanban']['estimate'] * ($this->workDaysInMonth() - Yii::$app->params['holidays_count_in_month']);
+        $workDaysInMonth = $this->workDaysInMonth() - Yii::$app->params['holidays_count_in_month'];
+        $workDaysInMonthLeft = $this->workDaysInMonthLeft();
+
+        $requiredSP = Yii::$app->params['kanban']['estimate'] * $workDaysInMonth;
 
         $completedTotalSP = 0;
         foreach ($result['issues'] as $issue) {
@@ -206,7 +209,9 @@ class SiteController extends Controller
             'completedTotalSP' => $completedTotalSP,
             'reviewTotalSP' => $reviewTotalSP,
             'inDevTotalSP' => $inDevTotalSP,
-            'requiredSP' => $requiredSP
+            'requiredSP' => $requiredSP,
+            'workDaysInMonth' => $workDaysInMonth,
+            'workDaysInMonthLeft' => $workDaysInMonthLeft
         ]);
     }
 
@@ -260,6 +265,23 @@ class SiteController extends Controller
         $month = (new \DateTime())->format('m');
         $year = (new \DateTime())->format('Y');
         $counter = mktime(0, 0, 0, $month, 1, $year);
+        while (date("n", $counter) == $month) {
+            if (in_array(date("w", $counter), [0, 6]) == false) {
+                $count++;
+            }
+            $counter = strtotime("+1 day", $counter);
+        }
+        $this->workDaysInMonthLeft();
+        return $count;
+    }
+
+    private function workDaysInMonthLeft()
+    {
+        $count = 0;
+        $currDay = (new \DateTime())->format('d');
+        $month = (new \DateTime())->format('m');
+        $year = (new \DateTime())->format('Y');
+        $counter = mktime(0, 0, 0, $month, $currDay, $year);
         while (date("n", $counter) == $month) {
             if (in_array(date("w", $counter), [0, 6]) == false) {
                 $count++;
